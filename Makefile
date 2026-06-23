@@ -22,9 +22,14 @@ DNP3_ARM_CXXFLAGS  := -std=c++17 -I$(CURDIR)/$(DNP3_ARM_DIR)/include
 # archive (-l:libstdc++.a) so the binary needs no libstdc++ on the device.
 DNP3_ARM_LDFLAGS   := -L$(CURDIR)/$(DNP3_ARM_DIR)/lib -lopendnp3 -l:libstdc++.a -lpthread -lm -ldl -static-libgcc
 
+# Loopback smoke test (cmd/godnp3smoke) settings.
+SMOKE_PORT     ?= 20123
+SMOKE_DURATION ?= 8s
+
 .DEFAULT_GOAL := help
 .PHONY: help opendnp3-vendor opendnp3-vendor-arm opendnp3-vendor-windows \
-        check-dnp3-host check-dnp3-arm check-dnp3-windows verify-shim
+        check-dnp3-host check-dnp3-arm check-dnp3-windows verify-shim \
+        build-ffi smoke
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -64,3 +69,17 @@ verify-shim: check-dnp3-host ## Standalone g++ compile-check of the C shim (no c
 	g++ -std=c++17 -fPIC -Wall -I$(DNP3_HOST_DIR)/include -c opendnp3_c.cpp -o /tmp/godnp3_shim.o
 	@rm -f /tmp/godnp3_shim.o
 	@echo "shim OK"
+
+build-ffi: check-dnp3-host ## Compile the binding under -tags dnp3_ffi (host opendnp3)
+	CGO_ENABLED=1 \
+	CGO_CXXFLAGS="$(DNP3_HOST_CXXFLAGS)" \
+	CGO_LDFLAGS="$(DNP3_HOST_LDFLAGS)" \
+	go build -tags dnp3_ffi ./...
+
+smoke: check-dnp3-host ## Build + run the loopback master<->outstation smoke test
+	CGO_ENABLED=1 \
+	CGO_CXXFLAGS="$(DNP3_HOST_CXXFLAGS)" \
+	CGO_LDFLAGS="$(DNP3_HOST_LDFLAGS)" \
+	go build -tags dnp3_ffi -o /tmp/godnp3smoke ./cmd/godnp3smoke
+	/tmp/godnp3smoke -port $(SMOKE_PORT) -duration $(SMOKE_DURATION)
+	@rm -f /tmp/godnp3smoke
