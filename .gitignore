@@ -1,0 +1,9 @@
+# opendnp3 is vendored locally per build host via `make opendnp3-vendor[-arm|-windows]`
+# (fetches source, builds static libs + headers into third_party/opendnp3/).
+# It's large and fully reproducible from scripts/build-opendnp3.sh, so it is not
+# committed — each build host regenerates it.
+/build/opendnp3/
+third_party/opendnp3/
+
+# Scratch object files from `make verify-shim`.
+*.o
