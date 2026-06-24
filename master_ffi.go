@@ -419,6 +419,42 @@ func (m *ffiMaster) IntegrityPoll(id string) error {
 	return nil
 }
 
+// operable resolves a started outstation association for a control operation.
+func (m *ffiMaster) operable(id string) (*assocCtx, error) {
+	m.mu.Lock()
+	ctx, ok := m.assocs[id]
+	m.mu.Unlock()
+	if !ok {
+		return nil, fmt.Errorf("opendnp3: unknown outstation %q", id)
+	}
+	if ctx.odc == nil {
+		return nil, fmt.Errorf("opendnp3: outstation %q not started", id)
+	}
+	return ctx, nil
+}
+
+func (m *ffiMaster) OperateBinary(id string, index uint16, on bool) error {
+	ctx, err := m.operable(id)
+	if err != nil {
+		return err
+	}
+	if rc := C.odc_master_operate_binary(ctx.odc, C.uint16_t(index), boolCInt(on)); rc != 0 {
+		return fmt.Errorf("opendnp3: operate binary on %q failed (rc=%d)", id, int(rc))
+	}
+	return nil
+}
+
+func (m *ffiMaster) OperateAnalog(id string, index uint16, value float64) error {
+	ctx, err := m.operable(id)
+	if err != nil {
+		return err
+	}
+	if rc := C.odc_master_operate_analog(ctx.odc, C.uint16_t(index), C.double(value)); rc != 0 {
+		return fmt.Errorf("opendnp3: operate analog on %q failed (rc=%d)", id, int(rc))
+	}
+	return nil
+}
+
 // --- helpers ---------------------------------------------------------------
 
 func defaultPort(p int) int {

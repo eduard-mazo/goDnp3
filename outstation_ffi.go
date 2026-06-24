@@ -11,12 +11,16 @@ package godnp3
 #include <stdint.h>
 #include "opendnp3_c.h"
 
-// Exported Go callback (definition emitted by cgo from the //export func).
+// Exported Go callbacks (definitions emitted by cgo from the //export funcs).
 extern void goOdcOutstationChannelState(void* ctx, int state);
+extern int  goOdcControlBinary(void* ctx, uint16_t index, int on, int is_select);
+extern int  goOdcControlAnalog(void* ctx, uint16_t index, double value, int is_select);
 
 static odc_outstation_callbacks odc_build_outstation_callbacks(void) {
     odc_outstation_callbacks c;
-    c.on_channel_state = goOdcOutstationChannelState;
+    c.on_channel_state  = goOdcOutstationChannelState;
+    c.on_control_binary = goOdcControlBinary;
+    c.on_control_analog = goOdcControlAnalog;
     return c;
 }
 
@@ -52,6 +56,9 @@ type ffiOutstation struct {
 
 	statusMu sync.RWMutex
 	status   Status // mirrored from the channel-state callback
+
+	sinkMu sync.RWMutex
+	sink   CommandSink // SCADA→field control sink; nil rejects controls
 }
 
 func newOutstation(cfg ServerConfig, sizes DBSizes, h Handler) Outstation {
@@ -191,6 +198,20 @@ func (o *ffiOutstation) Status() Status {
 	return o.status
 }
 
+// SetCommandSink registers the control sink. Call before Start; with no sink the
+// outstation rejects controls (NOT_SUPPORTED).
+func (o *ffiOutstation) SetCommandSink(sink CommandSink) {
+	o.sinkMu.Lock()
+	o.sink = sink
+	o.sinkMu.Unlock()
+}
+
+func (o *ffiOutstation) commandSink() CommandSink {
+	o.sinkMu.RLock()
+	defer o.sinkMu.RUnlock()
+	return o.sink
+}
+
 // outstationFrom recovers the *ffiOutstation from the void* the shim carries,
 // returning nil on a stale/deleted handle rather than panicking — the callback
 // can race teardown and a panic on an opendnp3 thread would abort the process.
@@ -227,4 +248,30 @@ func goOdcOutstationChannelState(p unsafe.Pointer, state C.int) {
 	if o.h != nil {
 		o.h.OnStatusChange(snap)
 	}
+}
+
+//export goOdcControlBinary
+func goOdcControlBinary(p unsafe.Pointer, index C.uint16_t, on C.int, isSelect C.int) C.int {
+	o := outstationFrom(p)
+	if o == nil {
+		return C.int(CmdNotSupported)
+	}
+	sink := o.commandSink()
+	if sink == nil {
+		return C.int(CmdNotSupported)
+	}
+	return C.int(sink.OnControlBinary(uint16(index), on != 0, isSelect != 0))
+}
+
+//export goOdcControlAnalog
+func goOdcControlAnalog(p unsafe.Pointer, index C.uint16_t, value C.double, isSelect C.int) C.int {
+	o := outstationFrom(p)
+	if o == nil {
+		return C.int(CmdNotSupported)
+	}
+	sink := o.commandSink()
+	if sink == nil {
+		return C.int(CmdNotSupported)
+	}
+	return C.int(sink.OnControlAnalog(uint16(index), float64(value), isSelect != 0))
 }

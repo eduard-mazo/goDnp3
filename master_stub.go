@@ -67,3 +67,11 @@ func (m *stubMaster) Status() []Status {
 func (m *stubMaster) IntegrityPoll(id string) error {
 	return fmt.Errorf("stub master: integrity poll not implemented (build with -tags dnp3_ffi)")
 }
+
+func (m *stubMaster) OperateBinary(id string, index uint16, on bool) error {
+	return fmt.Errorf("stub master: operate not implemented (build with -tags dnp3_ffi)")
+}
+
+func (m *stubMaster) OperateAnalog(id string, index uint16, value float64) error {
+	return fmt.Errorf("stub master: operate not implemented (build with -tags dnp3_ffi)")
+}

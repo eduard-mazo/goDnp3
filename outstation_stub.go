@@ -29,6 +29,8 @@ func (o *stubOutstation) Stop() {}
 
 func (o *stubOutstation) Update(Measurement) {}
 
+func (o *stubOutstation) SetCommandSink(CommandSink) {}
+
 func (o *stubOutstation) Status() Status {
 	return Status{
 		ID:        o.cfg.ServerID(),

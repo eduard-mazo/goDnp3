@@ -33,6 +33,11 @@ type Outstation interface {
 	// Status rather than the Master's slice). Connected reflects whether a SCADA
 	// master is currently connected.
 	Status() Status
+
+	// SetCommandSink registers a sink for controls a master issues to this
+	// outstation (CROB / analog output). Must be called before Start. With no
+	// sink, controls are rejected (NOT_SUPPORTED).
+	SetCommandSink(sink CommandSink)
 }
 
 // NewOutstation constructs an Outstation. The concrete type is selected by build

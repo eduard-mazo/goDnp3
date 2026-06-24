@@ -118,16 +118,53 @@ func (osHandler) OnStatusChange(s godnp3.Status) {
 }
 func (osHandler) OnLog(level, msg string) { log.Printf("[ostn:%s] %s", level, msg) }
 
+// controlRecorder is the outstation-side CommandSink: it records the controls a
+// master operates so the smoke can assert they arrived (Phase 8).
+type controlRecorder struct {
+	mu    sync.Mutex
+	binOK bool // received binary OPERATE idx 1 = on
+	anaOK bool // received analog OPERATE idx 1 = 42.5
+}
+
+func (c *controlRecorder) OnControlBinary(index uint16, on bool, isSelect bool) godnp3.CommandStatus {
+	log.Printf("[ostn] CONTROL binary idx=%d on=%v select=%v", index, on, isSelect)
+	c.mu.Lock()
+	if index == 1 && on && !isSelect {
+		c.binOK = true
+	}
+	c.mu.Unlock()
+	return godnp3.CmdSuccess
+}
+
+func (c *controlRecorder) OnControlAnalog(index uint16, value float64, isSelect bool) godnp3.CommandStatus {
+	log.Printf("[ostn] CONTROL analog idx=%d val=%g select=%v", index, value, isSelect)
+	c.mu.Lock()
+	if index == 1 && math.Abs(value-42.5) < 1e-9 && !isSelect {
+		c.anaOK = true
+	}
+	c.mu.Unlock()
+	return godnp3.CmdSuccess
+}
+
+func okStr(b bool) string {
+	if b {
+		return "ok"
+	}
+	return "FAIL"
+}
+
 func main() {
 	port := flag.Int("port", 20123, "loopback TCP port")
 	duration := flag.Duration("duration", 8*time.Second, "total test duration")
 	flag.Parse()
 
-	sizes := godnp3.DBSizes{Binary: 2, Analog: 2, Counter: 1, DoubleBit: 1}
+	sizes := godnp3.DBSizes{Binary: 2, Analog: 2, Counter: 1, DoubleBit: 1, BinaryOutputStatus: 2, AnalogOutputStatus: 2}
+	crec := &controlRecorder{}
 	ostn := godnp3.NewOutstation(godnp3.ServerConfig{
 		ID: "gw-ostn", Label: "Gateway Outstation", BindHost: "127.0.0.1", Port: *port,
 		LocalAddress: 1024, MasterAddress: 1, EventBufferSize: 100,
 	}, sizes, osHandler{})
+	ostn.SetCommandSink(crec)
 	if err := ostn.Start(context.Background()); err != nil {
 		log.Fatalf("outstation Start: %v", err)
 	}
@@ -161,6 +198,15 @@ func main() {
 	if err := m.IntegrityPoll("gw"); err != nil {
 		log.Printf("IntegrityPoll error: %v", err)
 	}
+	// Phase 8: master issues controls; the outstation's CommandSink should receive
+	// them (binary output idx 1 = on, analog output idx 1 = 42.5).
+	log.Printf("issuing controls from master")
+	if err := m.OperateBinary("gw", 1, true); err != nil {
+		log.Printf("OperateBinary: %v", err)
+	}
+	if err := m.OperateAnalog("gw", 1, 42.5); err != nil {
+		log.Printf("OperateAnalog: %v", err)
+	}
 	time.Sleep(*duration - half)
 	m.Stop()
 
@@ -185,6 +231,14 @@ func main() {
 		}
 		fmt.Printf("  %-4s  %-20s idx=%d want(%s) got(%s) q=0x%02x good=%v\n",
 			status, sv.pt, sv.idx, wantStr(sv), gotStr(got), uint8(got.Quality), got.Quality.Good())
+	}
+	crec.mu.Lock()
+	binOK, anaOK := crec.binOK, crec.anaOK
+	crec.mu.Unlock()
+	fmt.Printf("  %-4s  control binary→outstation sink (idx1=on)\n", okStr(binOK))
+	fmt.Printf("  %-4s  control analog→outstation sink (idx1=42.5)\n", okStr(anaOK))
+	if !binOK || !anaOK {
+		fails++
 	}
 	fmt.Println("──────────────────────────────────────")
 

@@ -124,6 +124,15 @@ int odc_master_add_all_objects_scan(odc_master* mst, uint8_t group, uint8_t vari
 /* Issue a one-shot class scan (e.g. an integrity poll). Returns 0 on success. */
 int odc_master_scan_classes(odc_master* mst, int class0, int class1, int class2, int class3);
 
+/*
+ * Issue a DirectOperate control to the remote outstation (Phase 8). Binary maps
+ * to a CROB (on → LATCH_ON, off → LATCH_OFF); analog maps to AnalogOutputDouble64.
+ * Fire-and-forget: returns 0 if the request was dispatched (the async result is
+ * delivered to opendnp3 logging), non-zero on a bad master.
+ */
+int odc_master_operate_binary(odc_master* mst, uint16_t index, int on);
+int odc_master_operate_analog(odc_master* mst, uint16_t index, double value);
+
 /* Synchronously enable/disable master communications. Returns 0 on success. */
 int odc_master_enable(odc_master* mst);
 int odc_master_disable(odc_master* mst);
@@ -136,8 +145,8 @@ void odc_master_destroy(odc_master* mst);
  * field data northbound to a SCADA master).
  *
  * Hangs off the SAME odc_manager as the masters (one asio thread pool, one log
- * sink for both roles). Monitoring-only for now: the command handler rejects
- * every control with NOT_SUPPORTED; SCADA→field passthrough comes later.
+ * sink for both roles). Controls from the master are routed to the Go command
+ * callbacks below when set; with no callback the shim rejects them NOT_SUPPORTED.
  * ===========================================================================*/
 
 typedef struct odc_outstation odc_outstation;
@@ -168,6 +177,16 @@ typedef struct {
  */
 typedef struct {
     void (*on_channel_state)(void* ctx, int state);
+
+    /*
+     * SCADA→outstation control callbacks (Phase 8). Return a DNP3 CommandStatus
+     * (0 = SUCCESS, 4 = NOT_SUPPORTED, …). A NULL callback (no Go sink) makes the
+     * shim reject that control with NOT_SUPPORTED. `is_select` is 1 for a SELECT
+     * (validate only) and 0 for an OPERATE. A CROB is reduced to on/off from its
+     * operation type (LATCH_ON/PULSE_ON → on; LATCH_OFF/PULSE_OFF → off).
+     */
+    int (*on_control_binary)(void* ctx, uint16_t index, int on, int is_select);
+    int (*on_control_analog)(void* ctx, uint16_t index, double value, int is_select);
 } odc_outstation_callbacks;
 
 typedef struct {

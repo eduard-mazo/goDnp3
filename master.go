@@ -34,6 +34,14 @@ type Master interface {
 	// IntegrityPoll triggers an on-demand integrity poll for one outstation.
 	// Returns immediately; the response arrives via Handler.OnMeasurement.
 	IntegrityPoll(outstationID string) error
+
+	// OperateBinary issues a DirectOperate CROB to an outstation, latching the
+	// binary output at index on/off. Returns once dispatched (the async result is
+	// delivered to opendnp3 logging).
+	OperateBinary(outstationID string, index uint16, on bool) error
+
+	// OperateAnalog issues a DirectOperate analog-output control to an outstation.
+	OperateAnalog(outstationID string, index uint16, value float64) error
 }
 
 // NewMaster constructs a Master. The concrete type is selected by build tag.

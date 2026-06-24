@@ -57,8 +57,14 @@
 #include "opendnp3/outstation/IOutstation.h"
 #include "opendnp3/outstation/IOutstationApplication.h"
 #include "opendnp3/outstation/OutstationStackConfig.h"
+#include "opendnp3/outstation/ICommandHandler.h"
 #include "opendnp3/outstation/SimpleCommandHandler.h"
 #include "opendnp3/outstation/UpdateBuilder.h"
+#include "opendnp3/app/AnalogOutput.h"
+#include "opendnp3/app/ControlRelayOutputBlock.h"
+#include "opendnp3/gen/OperationType.h"
+#include "opendnp3/master/ICommandProcessor.h"
+#include "opendnp3/master/ICommandTaskResult.h"
 #include "opendnp3/util/TimeDuration.h"
 #include "opendnp3/util/UTCTimestamp.h"
 
@@ -268,6 +274,55 @@ public:
 
 private:
     const odc_callbacks* cbs;
+    void* ctx;
+};
+
+// --- ICommandHandler (outstation, Phase 8) ---------------------------------
+//
+// Routes SCADA controls to the Go command callbacks. A CROB collapses to on/off
+// from its operation type; analog outputs of any width pass their value as a
+// double. A NULL callback (no sink) rejects with NOT_SUPPORTED, preserving the
+// monitoring-only default.
+
+class ShimCommandHandler final : public ICommandHandler
+{
+public:
+    ShimCommandHandler(odc_outstation_callbacks cbs, void* ctx) : cbs(cbs), ctx(ctx) {}
+
+    void Begin() override {}
+    void End() override {}
+
+    CommandStatus Select(const ControlRelayOutputBlock& c, uint16_t index) override { return crob(c, index, 1); }
+    CommandStatus Operate(const ControlRelayOutputBlock& c, uint16_t index, IUpdateHandler&, OperateType) override
+    {
+        return crob(c, index, 0);
+    }
+
+    CommandStatus Select(const AnalogOutputInt16& c, uint16_t index) override { return analog(c.value, index, 1); }
+    CommandStatus Operate(const AnalogOutputInt16& c, uint16_t index, IUpdateHandler&, OperateType) override { return analog(c.value, index, 0); }
+    CommandStatus Select(const AnalogOutputInt32& c, uint16_t index) override { return analog(c.value, index, 1); }
+    CommandStatus Operate(const AnalogOutputInt32& c, uint16_t index, IUpdateHandler&, OperateType) override { return analog(c.value, index, 0); }
+    CommandStatus Select(const AnalogOutputFloat32& c, uint16_t index) override { return analog(c.value, index, 1); }
+    CommandStatus Operate(const AnalogOutputFloat32& c, uint16_t index, IUpdateHandler&, OperateType) override { return analog(c.value, index, 0); }
+    CommandStatus Select(const AnalogOutputDouble64& c, uint16_t index) override { return analog(c.value, index, 1); }
+    CommandStatus Operate(const AnalogOutputDouble64& c, uint16_t index, IUpdateHandler&, OperateType) override { return analog(c.value, index, 0); }
+
+private:
+    CommandStatus crob(const ControlRelayOutputBlock& c, uint16_t index, int isSelect)
+    {
+        if (!cbs.on_control_binary)
+            return CommandStatus::NOT_SUPPORTED;
+        const int on = (c.opType == OperationType::LATCH_ON || c.opType == OperationType::PULSE_ON) ? 1 : 0;
+        return static_cast<CommandStatus>(cbs.on_control_binary(ctx, index, on, isSelect));
+    }
+    CommandStatus analog(double value, uint16_t index, int isSelect)
+    {
+        if (!cbs.on_control_analog)
+            return CommandStatus::NOT_SUPPORTED;
+        return static_cast<CommandStatus>(cbs.on_control_analog(ctx, index, value, isSelect));
+    }
+
+    odc_outstation_callbacks cbs;
     void* ctx;
 };
 
@@ -499,6 +554,32 @@ int odc_master_scan_classes(odc_master* mst, int class0, int class1, int class2,
     return 0;
 }
 
+int odc_master_operate_binary(odc_master* mst, uint16_t index, int on)
+{
+    if (!mst || !mst->master)
+        return 1;
+    try {
+        ControlRelayOutputBlock crob(on ? OperationType::LATCH_ON : OperationType::LATCH_OFF);
+        mst->master->DirectOperate(crob, index, [](const ICommandTaskResult&) {}, TaskConfig::Default());
+    } catch (...) {
+        return 1;
+    }
+    return 0;
+}
+
+int odc_master_operate_analog(odc_master* mst, uint16_t index, double value)
+{
+    if (!mst || !mst->master)
+        return 1;
+    try {
+        AnalogOutputDouble64 ao(value);
+        mst->master->DirectOperate(ao, index, [](const ICommandTaskResult&) {}, TaskConfig::Default());
+    } catch (...) {
+        return 1;
+    }
+    return 0;
+}
+
 int odc_master_enable(odc_master* mst)
 {
     if (!mst || !mst->master)
@@ -562,7 +643,7 @@ odc_outstation* odc_manager_add_outstation(odc_manager* mgr, const char* id,
 
         // Monitoring-only: reject every control with NOT_SUPPORTED until the
         // SCADA→field passthrough phase wires controls to the field drivers.
-        os->commandHandler = std::make_shared<SimpleCommandHandler>(CommandStatus::NOT_SUPPORTED);
+        os->commandHandler = std::make_shared<ShimCommandHandler>(cbs, ctx);
         os->app = DefaultOutstationApplication::Create();
 
         os->outstation = os->channel->AddOutstation(sid, os->commandHandler, os->app, stack);

@@ -100,6 +100,25 @@ type Handler interface {
 	OnLog(level, msg string)
 }
 
+// CommandStatus is the DNP3 control result a CommandSink returns (IEEE 1815
+// §A.6). CmdSuccess accepts the control; CmdNotSupported rejects it.
+type CommandStatus int
+
+const (
+	CmdSuccess      CommandStatus = 0
+	CmdNotSupported CommandStatus = 4
+)
+
+// CommandSink receives controls a SCADA master issues to an Outstation. The
+// gateway maps these to field writes (a CROB → coil/binary output; an analog
+// output → register/analog). isSelect distinguishes a SELECT (validate only)
+// from an OPERATE. Return CmdSuccess to accept, or CmdNotSupported (or another
+// status) to reject. Called from an opendnp3 thread — must not block.
+type CommandSink interface {
+	OnControlBinary(index uint16, on bool, isSelect bool) CommandStatus
+	OnControlAnalog(index uint16, value float64, isSelect bool) CommandStatus
+}
+
 // OutstationConfig describes a remote DNP3 outstation a Master connects to and
 // polls (one TCP channel per host:port; one association per link-address pair).
 // Caller-side concerns like an "enabled" gate are out of scope — only enabled
