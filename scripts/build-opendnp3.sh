@@ -7,6 +7,7 @@
 # Usage:
 #   scripts/build-opendnp3.sh                 # host triple (x86_64 glibc)
 #   scripts/build-opendnp3.sh armv7-linux     # cross-compile for ICR-3232
+#   scripts/build-opendnp3.sh ppc64le-linux   # cross-compile for IBM POWER (ppc64le)
 #   scripts/build-opendnp3.sh windows-mingw   # cross-compile for Windows x64
 #
 # Prereqs (host build):
@@ -57,6 +58,26 @@ set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 EOF
     TOOLCHAIN_ARGS=("-DCMAKE_TOOLCHAIN_FILE=${TOOLCHAIN_FILE}")
     ;;
+  ppc64le-linux)
+    TRIPLE="powerpc64le-unknown-linux-gnu"
+    if ! command -v powerpc64le-linux-gnu-g++ >/dev/null; then
+      echo "ERROR: powerpc64le-linux-gnu-g++ not found." >&2
+      echo "  apt install gcc-powerpc64le-linux-gnu g++-powerpc64le-linux-gnu" >&2
+      exit 1
+    fi
+    TOOLCHAIN_FILE="${WORK}/toolchain-ppc64le.cmake"
+    mkdir -p "${WORK}"
+    cat > "${TOOLCHAIN_FILE}" <<EOF
+set(CMAKE_SYSTEM_NAME Linux)
+set(CMAKE_SYSTEM_PROCESSOR ppc64le)
+set(CMAKE_C_COMPILER powerpc64le-linux-gnu-gcc)
+set(CMAKE_CXX_COMPILER powerpc64le-linux-gnu-g++)
+set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+EOF
+    TOOLCHAIN_ARGS=("-DCMAKE_TOOLCHAIN_FILE=${TOOLCHAIN_FILE}")
+    ;;
   windows-mingw)
     TRIPLE="x86_64-w64-mingw32"
     if ! command -v x86_64-w64-mingw32-g++ >/dev/null; then
@@ -84,7 +105,7 @@ EOF
     TOOLCHAIN_ARGS=("-DCMAKE_TOOLCHAIN_FILE=${TOOLCHAIN_FILE}")
     ;;
   *)
-    echo "ERROR: unknown target '${TARGET}' (use host | armv7-linux | windows-mingw)" >&2
+    echo "ERROR: unknown target '${TARGET}' (use host | armv7-linux | ppc64le-linux | windows-mingw)" >&2
     exit 1
     ;;
 esac

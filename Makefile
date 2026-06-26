@@ -4,12 +4,14 @@
 # once per host with `make opendnp3-vendor[-arm|-windows]`. The static archive
 # links into each consumer's binary; nothing extra to deploy.
 
-DNP3_HOST_TRIPLE   ?= x86_64-unknown-linux-gnu
-DNP3_ARM_TRIPLE    ?= armv7-unknown-linux-gnueabihf
-DNP3_WIN_TRIPLE    ?= x86_64-w64-mingw32
-DNP3_HOST_DIR      := third_party/opendnp3/$(DNP3_HOST_TRIPLE)
-DNP3_ARM_DIR       := third_party/opendnp3/$(DNP3_ARM_TRIPLE)
-DNP3_WIN_DIR       := third_party/opendnp3/$(DNP3_WIN_TRIPLE)
+DNP3_HOST_TRIPLE    ?= x86_64-unknown-linux-gnu
+DNP3_ARM_TRIPLE     ?= armv7-unknown-linux-gnueabihf
+DNP3_PPC64LE_TRIPLE ?= powerpc64le-unknown-linux-gnu
+DNP3_WIN_TRIPLE     ?= x86_64-w64-mingw32
+DNP3_HOST_DIR       := third_party/opendnp3/$(DNP3_HOST_TRIPLE)
+DNP3_ARM_DIR        := third_party/opendnp3/$(DNP3_ARM_TRIPLE)
+DNP3_PPC64LE_DIR    := third_party/opendnp3/$(DNP3_PPC64LE_TRIPLE)
+DNP3_WIN_DIR        := third_party/opendnp3/$(DNP3_WIN_TRIPLE)
 
 # The C++ shim (opendnp3_c.cpp) is compiled by cgo in consumers; it needs the
 # opendnp3 headers (CXXFLAGS) and the static libs + their TLS/stdc++/pthread
@@ -21,15 +23,19 @@ DNP3_ARM_CXXFLAGS  := -std=c++17 -I$(CURDIR)/$(DNP3_ARM_DIR)/include
 # host), so it links no ssl/crypto. Force-static the C++ runtime via the literal
 # archive (-l:libstdc++.a) so the binary needs no libstdc++ on the device.
 DNP3_ARM_LDFLAGS   := -L$(CURDIR)/$(DNP3_ARM_DIR)/lib -lopendnp3 -l:libstdc++.a -lpthread -lm -ldl -static-libgcc
+# ppc64le (IBM POWER) is vendored with DNP3_TLS=OFF as well — same no-ssl,
+# static-libstdc++ link as armv7, just a different triple.
+DNP3_PPC64LE_CXXFLAGS := -std=c++17 -I$(CURDIR)/$(DNP3_PPC64LE_DIR)/include
+DNP3_PPC64LE_LDFLAGS  := -L$(CURDIR)/$(DNP3_PPC64LE_DIR)/lib -lopendnp3 -l:libstdc++.a -lpthread -lm -ldl -static-libgcc
 
 # Loopback smoke test (cmd/godnp3smoke) settings.
 SMOKE_PORT     ?= 20123
 SMOKE_DURATION ?= 8s
 
 .DEFAULT_GOAL := help
-.PHONY: help opendnp3-vendor opendnp3-vendor-arm opendnp3-vendor-windows \
-        check-dnp3-host check-dnp3-arm check-dnp3-windows verify-shim \
-        build-ffi smoke
+.PHONY: help opendnp3-vendor opendnp3-vendor-arm opendnp3-vendor-ppc64le \
+        opendnp3-vendor-windows check-dnp3-host check-dnp3-arm \
+        check-dnp3-ppc64le check-dnp3-windows verify-shim build-ffi smoke
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -40,6 +46,9 @@ opendnp3-vendor: ## Vendor opendnp3 static libs for the host
 
 opendnp3-vendor-arm: ## Vendor opendnp3 static libs for ICR-323x arm/v7
 	bash scripts/build-opendnp3.sh armv7-linux
+
+opendnp3-vendor-ppc64le: ## Vendor opendnp3 static libs for IBM POWER (ppc64le)
+	bash scripts/build-opendnp3.sh ppc64le-linux
 
 opendnp3-vendor-windows: ## Vendor opendnp3 static libs for Windows x64
 	bash scripts/build-opendnp3.sh windows-mingw
@@ -55,6 +64,13 @@ check-dnp3-arm:
 	@if [ ! -f $(DNP3_ARM_DIR)/include/opendnp3/DNP3Manager.h ] || [ ! -f $(DNP3_ARM_DIR)/lib/libopendnp3.a ]; then \
 		echo "ERROR: missing $(DNP3_ARM_DIR)/{include/opendnp3/DNP3Manager.h,lib/libopendnp3.a}"; \
 		echo "  Run: make opendnp3-vendor-arm"; \
+		exit 1; \
+	fi
+
+check-dnp3-ppc64le:
+	@if [ ! -f $(DNP3_PPC64LE_DIR)/include/opendnp3/DNP3Manager.h ] || [ ! -f $(DNP3_PPC64LE_DIR)/lib/libopendnp3.a ]; then \
+		echo "ERROR: missing $(DNP3_PPC64LE_DIR)/{include/opendnp3/DNP3Manager.h,lib/libopendnp3.a}"; \
+		echo "  Run: make opendnp3-vendor-ppc64le"; \
 		exit 1; \
 	fi
 
